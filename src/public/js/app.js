@@ -21,12 +21,19 @@ function addMessage(message){
 //메시지 전송
 function handleMessageSubmit(event){
     event.preventDefault();
-    const input = room.querySelector("input");
+    const input = room.querySelector("#msg input");
     const value=  input.value;
     socket.emit("new_message", input.value, roomName, () => {
         addMessage(`You: ${value}`);
     });
     input.value = "";
+}
+
+//닉네임
+function handleNicknameSubmit(event){
+    event.preventDefault();
+    const input = room.querySelector("#name input");
+    socket.emit("nickname", input.value);
 }
 
 //room 보이기
@@ -35,8 +42,10 @@ function showRoom(){
     room.hidden = false;
     const h3 = room.querySelector("h3");
     h3.innerText = `Room ${roomName}`;
-    const form = room.querySelector("form");
-    form.addEventListener("submit", handleMessageSubmit);
+    const msgForm = room.querySelector("#msg");
+    const nameForm = room.querySelector("#name");
+    msgForm.addEventListener("submit", handleMessageSubmit);
+    nameForm.addEventListener("submit", handleNicknameSubmit);
 }
 
 //room 입장
@@ -50,15 +59,33 @@ function handleRoomSubmit(event){
 
 form.addEventListener("submit", handleRoomSubmit);
 
-//입장 알림
-socket.on("welcome", ()=>{
-    addMessage("Someone Joined!")
+//입장 알림, user count
+socket.on("welcome", (user, newCount)=>{
+    const h3 = room.querySelector("h3");
+    h3.innerText = `Room ${roomName} (${newCount})`;
+    addMessage(`${user} arrived!`);
 });
 
-//퇴장 알림
-socket.on("bye", ()=>{
-    addMessage("Someone left!")
+//퇴장 알림, user count
+socket.on("bye", (left, newCount)=>{
+    const h3 = room.querySelector("h3");
+    h3.innerText = `Room ${roomName} (${newCount})`;
+    addMessage(`${left} left`);
 });
 
 //메시지 표시
 socket.on("new_message", addMessage);
+
+//room 표시
+socket.on("room_change", (rooms) => {
+    const roomList = welcome.querySelector("ul");
+    roomList.innerHTML = "";
+    if (rooms.length === 0) {
+        return;
+    }
+    rooms.forEach((room) => {
+        const li = document.createElement("li");
+        li.innerText = room;
+        roomList.append(li);
+    })
+});
