@@ -1,91 +1,158 @@
 //연결
 const socket = io();
 
-const welcome = document.getElementById("welcome");
-const form = welcome.querySelector("form");
-const room = document.getElementById("room");
+const myFace = document.getElementById("myFace");
+const muteBtn = document.getElementById("mute");
+const cameraBtn = document.getElementById("camera");
+const camerasSelect = document.getElementById("cameras");
+const call = document.getElementById("call");
 
-//room 숨기기
-room.hidden = true;
+call.hidden = true;
 
+let myStream;
+let muted = false;
+let cameraOff = false;
 let roomName;
+let myPeerConnection;
 
-//메시지 생성
-function addMessage(message){
-    const ul = room.querySelector('ul');
-    const li = document.createElement("li");
-    li.innerText = message;
-    ul.appendChild(li);
+//카메라 장치 찾기
+async function getCameras() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cameras = devices.filter((device) => device.kind === "videoinput");
+      const currentCamera = myStream.getVideoTracks()[0];
+      //카메라 장치 이름 표시
+      cameras.forEach((camera) => {
+        const option = document.createElement("option");
+        option.value = camera.deviceId;
+        option.innerText = camera.label;
+        if (currentCamera.label === camera.label) {
+            option.selected = true;
+        }
+        camerasSelect.appendChild(option);
+      });
+    } catch (e) {
+      console.log(e);
+    }
+  }
+
+//미디어 보이기
+async function getMedia(deviceId) {
+    const initialConstrains = {
+        audio: true,
+        video: { facingMode: "user" },
+        };
+        const cameraConstraints = {
+        audio: true,
+        video: { deviceId: { exact: deviceId } },
+        };
+    try {
+        myStream = await navigator.mediaDevices.getUserMedia(
+            deviceId ? cameraConstraints : initialConstrains
+          );
+    myFace.srcObject = myStream;
+    if (!deviceId) {
+        await getCameras();
+      }
+    }catch (e) {
+    console.log(e);
+    }
 }
 
-//메시지 전송
-function handleMessageSubmit(event){
-    event.preventDefault();
-    const input = room.querySelector("#msg input");
-    const value=  input.value;
-    socket.emit("new_message", input.value, roomName, () => {
-        addMessage(`You: ${value}`);
-    });
-    input.value = "";
+//음성 설정
+function handleMuteClick() {
+    myStream
+    .getAudioTracks()
+    .forEach((track) => (track.enabled = !track.enabled));
+    if (!muted) {
+      muteBtn.innerText = "Unmute";
+      muted = true;
+    } else {
+      muteBtn.innerText = "Mute";
+      muted = false;
+    }
 }
 
-//닉네임
-function handleNicknameSubmit(event){
-    event.preventDefault();
-    const input = room.querySelector("#name input");
-    socket.emit("nickname", input.value);
+//카메라 설정
+function handleCameraClick() {
+    myStream
+    .getVideoTracks()
+    .forEach((track) => (track.enabled = !track.enabled));
+    if (cameraOff) {
+      cameraBtn.innerText = "Turn Camera Off";
+      cameraOff = false;
+    } else {
+      cameraBtn.innerText = "Turn Camera On";
+      cameraOff = true;
+    }
 }
 
-//room 보이기
-function showRoom(){
+//카메라 전환
+async function handleCameraChange() {
+    await getMedia(camerasSelect.value);
+}
+
+muteBtn.addEventListener("click", handleMuteClick);
+cameraBtn.addEventListener("click", handleCameraClick);
+camerasSelect.addEventListener("input", handleCameraChange);
+
+
+// * Welcome Form (join a room) *
+
+const welcome = document.getElementById("welcome");
+const welcomeForm = welcome.querySelector("form");
+
+//시작 화면
+async function initCall() {
     welcome.hidden = true;
-    room.hidden = false;
-    const h3 = room.querySelector("h3");
-    h3.innerText = `Room ${roomName}`;
-    const msgForm = room.querySelector("#msg");
-    const nameForm = room.querySelector("#name");
-    msgForm.addEventListener("submit", handleMessageSubmit);
-    nameForm.addEventListener("submit", handleNicknameSubmit);
+    call.hidden = false;
+    await getMedia();
+    makeConnection();
 }
 
 //room 입장
-function handleRoomSubmit(event){
+async function handleWelcomeSubmit(event) {
     event.preventDefault();
-    const input = form.querySelector("input");
-    socket.emit("enter_room", input.value, showRoom);
+    const input = welcomeForm.querySelector("input");
+    await initCall();
+    socket.emit("join_room", input.value);
     roomName = input.value;
     input.value = "";
 }
 
-form.addEventListener("submit", handleRoomSubmit);
+welcomeForm.addEventListener("submit", handleWelcomeSubmit);
 
-//입장 알림, user count
-socket.on("welcome", (user, newCount)=>{
-    const h3 = room.querySelector("h3");
-    h3.innerText = `Room ${roomName} (${newCount})`;
-    addMessage(`${user} arrived!`);
-});
 
-//퇴장 알림, user count
-socket.on("bye", (left, newCount)=>{
-    const h3 = room.querySelector("h3");
-    h3.innerText = `Room ${roomName} (${newCount})`;
-    addMessage(`${left} left`);
-});
+// * Socket Code *
 
-//메시지 표시
-socket.on("new_message", addMessage);
+// 다른 피어 room 입장
+socket.on("welcome", async () => {
+    //pear A
+    const offer = await myPeerConnection.createOffer();
+    myPeerConnection.setLocalDescription(offer);
+    console.log("sent the offer");
+    socket.emit("offer", offer, roomName);
+    });
+    //pear B
+    socket.on("offer", async (offer) => {
+    myPeerConnection.setRemoteDescription(offer);
+    const answer = await myPeerConnection.createAnswer();
+    myPeerConnection.setLocalDescription(answer);
+    socket.emit("answer", answer, roomName);
+    });
+    // 연결 알림
+    socket.on("answer", (answer) => {
+        myPeerConnection.setRemoteDescription(answer);
+  });
 
-//room 표시
-socket.on("room_change", (rooms) => {
-    const roomList = welcome.querySelector("ul");
-    roomList.innerHTML = "";
-    if (rooms.length === 0) {
-        return;
-    }
-    rooms.forEach((room) => {
-        const li = document.createElement("li");
-        li.innerText = room;
-        roomList.append(li);
-    })
-});
+  
+  // * RTC Code *
+  
+  //다른 피어와의 연결 설정
+  function makeConnection() {
+    myPeerConnection = new RTCPeerConnection();
+    myStream
+        .getTracks()
+        //새 미디어 트랙 추가
+        .forEach((track) => myPeerConnection.addTrack(track, myStream));
+  }

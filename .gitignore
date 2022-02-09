@@ -1,3 +1,5 @@
 node_modules
-app_websocket.js
-home_websocket.pug
+app#1.js
+home#1.pug
+app#2.js
+home#2.pug
